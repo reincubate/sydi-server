@@ -25,6 +25,7 @@
     5.2.2. SYDI-Overview
     5.2.3. FlexWiki
    5.3. Running against multiple computers
+   5.4. Submitting network inventory data to awdit
 
 6. Known issues
 
@@ -251,6 +252,20 @@ If you want to target multiple computers you should use the script
 sydi-wrapper.vbs. You will have to edit the script to specify the location
 of sydi-server.vbs, where you want to place the output files and
 which options you want to use from SYDI-Server.
+
+5.4. Submitting network inventory data to awdit
+-----------------------------------------------
+
+If you would like to submit your sydi data to the awdit system, you can use the awdit arguments.
+
+-ea tells the script to submit data to awdit (don't use -eh as that's a generic HTTP POST setup)
+-K specifies the awdit API key to use
+-A specifies the awdit account to use (the account and API key must match)
+-O is an optional argument to specify the location to upload to within awdit
+
+Example: cscript sydi-server.vbs -ea -K<your-key> -A<your-account> -tlocalhost
+
+There is more information about awdit at http://www.awdit.com. It can provide a browseable, reportable, searchable interface for your sydi data.
 
 6. Known issues
 ---------------

@@ -241,6 +241,11 @@ Dim strDOTFile, strWordTable
 Dim strExportFormat, strSaveFile
 ' XML Options
 Dim strStylesheet, strXSLFreeText
+' HTTP Options
+Dim strWebaccount, strWebUrl
+' Awdit Options
+Dim strAwditLocation, strWebKey
+strAwditLocation = ""
 
 ' Constants
 Const adVarChar = 200
@@ -303,6 +308,10 @@ Else
 					PopulateWordfile
 				Case "xml"
 					PopulateXMLFile
+				Case "http"
+					PopulateHttp
+				Case "awdit"
+					PopulateAwdit
 			End Select
 		End If
 	End If
@@ -311,6 +320,20 @@ End If
 '==========================================================
 '==========================================================
 ' Procedures
+
+' Date conversion - http://classicasp.aspfaq.com/date-time-routines-manipulation/can-i-make-vbscript-format-dates-for-me.html
+
+Function pd(n, totalDigits) 
+	if totalDigits > len(n) then 
+		pd = String(totalDigits-len(n),"0") & n 
+	else 
+		pd = n 
+	end if 
+End Function 
+
+Function ConvertDateToShortUTC(lDate)
+	ConvertDateToShortUTC = pd(Year(lDate),2) & pd(Month(lDate),2) & pd(Day(lDate),2) & pd(Hour(lDate),2) & pd(Minute(lDate),2) & pd(Second(lDate),2)
+End Function
 
 Sub CheckVersion
 	Dim strURLSydiVersioncheck
@@ -330,10 +353,15 @@ Sub CheckVersion
 	Wscript.Quit
 End Sub ' CheckVersion
 
+'Function ConvertWMIDate(dUTCDate)
+'	' This is a standard function to convert WMI time to "normal" time.
+'	ConvertWMIDate = CDate(Mid(dUTCDate, 5, 2) & "/" &  Mid(dUTCDate, 7, 2) & "/" & Left(dUTCDate, 4) & " " & _
+'                          Mid (dUTCDate, 9, 2) & ":" &  Mid(dUTCDate, 11, 2) & ":" & Mid(dUTCDate, 13, 2))
+'End Function
+
 Function ConvertWMIDate(dUTCDate)
 	' This is a standard function to convert WMI time to "normal" time.
-	ConvertWMIDate = CDate(Mid(dUTCDate, 5, 2) & "/" &  Mid(dUTCDate, 7, 2) & "/" & Left(dUTCDate, 4) & " " & _
-                          Mid (dUTCDate, 9, 2) & ":" &  Mid(dUTCDate, 11, 2) & ":" & Mid(dUTCDate, 13, 2))
+	ConvertWMIDate = Left(dUTCDate,14)
 End Function
 
 Sub CalculateProcessorSockets(strSocketDesignation)
@@ -386,11 +414,19 @@ Sub DisplayHelp
 	WScript.Echo " -e	- Export format"
 	WScript.Echo "   w	- Microsoft Word (Default)"
 	WScript.Echo "   x	- XML (has to be used with -o)"
+	WScript.Echo "   h	- HTTP post to webserver (has to be used with -U, -P and -L)"
+	WScript.Echo "   a	- Submit data to awdit (has to be used with -K, -A and -O)"
  	WScript.Echo " -o	- Save to file (-oc:\corpfiles\server1.doc, use in combination with -d"
  	WScript.Echo "   	  if you don't want to display word at all, use a Path or the file will"
  	WScript.Echo "  	  be placed in your default location usually 'My documents')"
  	WScript.Echo "  	  -oC:\corpfiles\server1.xml"
  	WScript.Echo "  	  WARNING USING -o WILL OVERWRITE TARGET FILE WITHOUT ASKING"
+	WScript.Echo " -U	- Username for HTTP server (optional)"
+	WScript.Echo " -P	- Password for HTTP server (optional)"
+	WScript.Echo " -L	- URL to post resulting XML to (if using HTTP export option)"
+	WScript.Echo " -K	- Awdit API key"
+	WScript.Echo " -O	- Awdit location (quoted string)"
+	WScript.Echo " -A	- Awdit account id"
  	WScript.Echo "Word Options"
  	WScript.Echo " -b	- Use specific Word Table (-b""Table Contemporary"""
  	WScript.Echo "   	  or -b""Table List 4"")"
@@ -1357,6 +1393,13 @@ Sub GetOptions()
 		Next
 	Else
 		WScript.Echo "For help type: cscript.exe sydi-server.vbs -h"
+	End If
+	If strExportFormat = "awdit" Then
+		bWMIPatches = False
+		bWMIServices = False
+		bWMIPrinters = False
+		bWMIEventLogFile = False
+		bWMIStartupCommands = False
 	End If
 	SystemRolesDefine
 	If (bSaveFile = False And strExportFormat = "xml") Then
@@ -2524,7 +2567,7 @@ Sub PopulateXMLFile()
 	
 	objXMLFile.WriteLine "<computer>"
 	' generated
-	objXMLFile.WriteLine " <generated script=""sydi-server"" version=""" & strScriptVersion & """ scantime=""" & now & """ />"
+	objXMLFile.WriteLine " <generated script=""sydi-server"" version=""" & strScriptVersion & """ scantime=""" & ConvertDateToShortUTC(now) & """ />"
 	' computer
 	objXMLFile.WriteLine " <system name=""" & strComputerSystem_Name & """ />" 
 	' operatingsystem
@@ -3003,6 +3046,1045 @@ Sub PopulateXMLFile()
 
 	ReportProgress "End subroutine: PopulateXMLfile()"
 End Sub ' PopulateXMLFile
+
+Sub PopulateHttp()
+	Dim objWeb, objXMLFile
+	ReportProgress VbCrLf & "Start subroutine: PopulateHttp()"
+
+	'Set objWeb = CreateObject("Microsoft.XMLHTTP")
+	Set objWeb = CreateObject("MSXML2.ServerXMLHTTP")
+
+	objXMLFile = objXMLFile & "<?xml version=""1.0"" encoding=""ISO-8859-1"" ?>"
+	Select Case strStylesheet
+		Case "html"
+			objXMLFile = objXMLFile & "<?xml-stylesheet type=""text/xsl"" href=""serverhtml.xsl""?>"
+		Case "freetext"
+			objXMLFile = objXMLFile & "<?xml-stylesheet type=""text/xsl"" href=""" & strXSLFreeText & """?>"
+	End Select
+	
+	objXMLFile = objXMLFile & "<computer>"
+	' generated
+	objXMLFile = objXMLFile & " <generated script=""sydi-server"" version=""" & strScriptVersion & """ scantime=""" & ConvertDateToShortUTC(now) & """ />"
+	' computer
+	objXMLFile = objXMLFile & " <system name=""" & strComputerSystem_Name & """ />" 
+	' operatingsystem
+	objXMLFile = objXMLFile & " <operatingsystem name=""" & Scrub4XML(strOperatingSystem_Caption) & """ servicepack=""" & strOperatingSystem_ServicePack & """ />" 
+	If (bRegDomainSuffix) Then
+		' fqdn
+		objXMLFile = objXMLFile & " <fqdn name=""" &  LCase(strComputerSystem_Name) & "." & strPrimaryDomain & """ />" 
+	End If
+
+	' Roles
+	objXMLFile = objXMLFile & " <roles>"
+	If Not (objDbrSystemRoles.Bof) Then
+		objDbrSystemRoles.MoveFirst
+	End If
+	Do Until objDbrSystemRoles.EOF
+		objXMLFile = objXMLFile & "  <role name=""" & Cstr(objDbrSystemRoles.Fields.Item("Role")) & """ />"
+		objDbrSystemRoles.MoveNext
+	Loop	
+	objXMLFile = objXMLFile & " </roles>"
+	
+	' machineinfo
+	objXMLFile = objXMLFile & " <machineinfo manufacturer=""" & strComputerSystemProduct_Manufacturer & _
+	""" productname=""" & strComputerSystemProduct_Name & """ identifyingnumber=""" &  strComputerSystemProduct_IdentifyingNumber & _
+	""" chassis=""" & strChassisType & """ />" 
+	
+	' Processors
+	objXMLFile = objXMLFile & " <processor count=""" & intProcessors & _
+		""" name=""" & strProcessor_Name & _
+		""" description=""" & strProcessor_Description & _
+		""" speed=""" & strProcessor_MaxClockSpeed & _
+		""" l2cachesize=""" & strProcessor_L2CacheSize & _
+		""" externalclock=""" & strProcessor_ExtClock & _
+		""" htsystem=""" & bProcessorHTSystem & """ />"
+
+	' Memory
+	objXMLFile = objXMLFile & " <memory totalsize=""" & strTotalPhysicalMemoryMB & """>"
+	If Not (objDbrPhysicalMemory.Bof) Then
+		objDbrPhysicalMemory.MoveFirst
+	End If
+	Do Until objDbrPhysicalMemory.EOF
+		objXMLFile = objXMLFile & "  <memorybank bank=""" & Scrub4XML(objDbrPhysicalMemory.Fields.Item("BankLabel")) & _
+			""" capacity=""" & ReturnBytes2Megabytes(objDbrPhysicalMemory.Fields.Item("Capacity")) & _
+			""" formfactor=""" & ReturnPhysicalMemoryFormFactor(objDbrPhysicalMemory.Fields.Item("FormFactor")) & _
+			""" memorytype=""" & ReturnPhysicalMemoryMemoryType(objDbrPhysicalMemory.Fields.Item("MemoryType")) & """ />"
+		objDbrPhysicalMemory.MoveNext
+	Loop
+	objXMLFile = objXMLFile & " </memory>"
+
+	objXMLFile = objXMLFile & " <win32_cdromdrive>"
+	If Not (objDbrCDROMDrive.Bof) Then
+		objDbrCDROMDrive.MoveFirst
+	End If
+	Do Until objDbrCDROMDrive.EOF
+		objXMLFile = objXMLFile & "  <cdrom name=""" & Scrub4XML(objDbrCDROMDrive.Fields.Item("Name")) & _
+			""" drive=""" & Scrub4XML(objDbrCDROMDrive.Fields.Item("Drive")) & _
+			""" manufacturer=""" & Scrub4XML(objDbrCDROMDrive.Fields.Item("Manufacturer")) & """ />"
+		objDbrCDROMDrive.MoveNext
+	Loop
+	objXMLFile = objXMLFile & " </win32_cdromdrive>"
+	
+	'Tape Drive
+	If (bHasTapeDrive) Then
+		objXMLFile = objXMLFile & " <win32_tapedrive>"
+		If Not (objDbrTapeDrive.Bof) Then
+			objDbrTapeDrive.MoveFirst
+		End If
+		Do Until objDbrTapeDrive.EOF
+			objXMLFile = objXMLFile & "  <tapedrive name=""" & Scrub4XML(objDbrTapeDrive.Fields.Item("Name")) & _
+				""" description=""" & Scrub4XML(objDbrTapeDrive.Fields.Item("Description")) & _
+				""" manufacturer=""" & Scrub4XML(objDbrTapeDrive.Fields.Item("Manufacturer")) & """ />"
+			objDbrTapeDrive.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </win32_tapedrive>"
+	End If
+	
+	'Video Controller
+	If (bWMIHardware) Then
+		objXMLFile = objXMLFile & " <videocontroller>"
+		If Not (objDbrVideoController.Bof) Then
+			objDbrVideoController.MoveFirst
+		End If
+		Do Until objDbrVideoController.EOF
+			objXMLFile = objXMLFile & "  <adapter name=""" & Scrub4XML(objDbrVideoController.Fields.Item("Name")) & _
+				""" adapterram=""" & ReturnBytes2Megabytes(objDbrVideoController.Fields.Item("adapterram")) & _
+				""" compatibility=""" & Scrub4XML(objDbrVideoController.Fields.Item("AdapterCompatibility")) & """ />"
+			objDbrVideoController.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </videocontroller>"
+	End If
+
+	If (bWMIHardware) Then
+		'Sound Card Information
+		objXMLFile = objXMLFile & " <win32_sounddevice>"
+		If Not (objDbrSoundDevice.Bof) Then
+			objDbrSoundDevice.MoveFirst
+		End If
+		Do Until objDbrSoundDevice.EOF
+			objXMLFile = objXMLFile & "  <card name=""" & Scrub4XML(objDbrSoundDevice.Fields.Item("Name")) & _
+				""" manufacturer=""" & Scrub4XML(objDbrSoundDevice.Fields.Item("Manufacturer")) & """ />"
+			objDbrSoundDevice.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </win32_sounddevice>"
+	End If
+
+	
+	' Bios Versions
+	If (bWMIBios) Then	
+		objXMLFile = objXMLFile & " <bios version=""" & strBIOS_Version & """ smbiosversion=""" & strBIOS_SMBIOSBIOSVersion & _
+			""" smbiosmajorversion=""" & strBIOS_SMBIOSMajorVersion &_
+			""" smbbiosminorversion=""" & strBIOS_SMBIOSMinorVersion & """>"
+
+		For i = 0 To Ubound(arrBIOS_BiosCharacteristics)
+			objXMLFile = objXMLFile & "  <bioscharacteristics id=""" & arrBIOS_BiosCharacteristics(i) & _
+				""" name=""" & Cstr(ReturnBiosCharacteristic(arrBIOS_BiosCharacteristics(i))) & """ />"
+		Next
+		objXMLFile = objXMLFile & " </bios>"
+	End If
+	
+	' OS Configuration
+	objXMLFile = objXMLFile & " <osconfiguration osname=""" & strOperatingSystem_Caption & _
+		""" computerrole=""" & strComputerRole & _
+		""" domainname=""" & strComputerSystem_Domain & _
+		""" domaintype=""" & strDomainType & _
+		""" windowslocation=""" & strOperatingSystem_WindowsDirectory & _
+		""" oslanguage=""" & ReturnOperatingSystemLanguage(strOperatingSystem_LanguageCode) & _
+		""" installdate=""" & ConvertWMIDate(strOperatingSystem_InstallDate) & """ />"
+
+	' Last User
+	If (bRegLastUser) Then
+		objXMLFile = objXMLFile & " <lastuser name=""" & strLastUser & """ />"
+	End If
+
+	' Windows Components
+	If (bRegWindowsComponents) Then
+		objXMLFile = objXMLFile & " <windowscomponents>"
+		If Not (objDbrWindowsComponents.Bof) Then
+			objDbrWindowsComponents.Movefirst
+		End If
+		Do Until objDbrWindowsComponents.EoF
+			If (objDbrWindowsComponents.Fields.Item("ClassName") <> "Hidden") Then
+				objXMLFile = objXMLFile & "  <component name=""" & CStr(objDbrWindowsComponents.Fields.Item("DisplayName")) & _
+					""" class=""" & objDbrWindowsComponents.Fields.Item("Class") & _
+					""" classname=""" & CStr(objDbrWindowsComponents.Fields.Item("ClassName")) & _
+					""" level=""" & objDbrWindowsComponents.Fields.Item("Level") & """ />"
+			End If
+			objDbrWindowsComponents.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </windowscomponents>"
+	End If
+
+	' Patches
+	If (bWMIPatches) Then
+		objXMLFile = objXMLFile & " <patches>" 
+		If Not (objDbrPatches.Bof) Then
+			objDbrPatches.Movefirst
+		End If
+		Do Until objDbrPatches.Eof
+			objXMLFile = objXMLFile & "  <patch description=""" &  Scrub4XML(objDbrPatches.Fields.Item("Description")) & _
+			""" hotfixid=""" & Scrub4XML(objDbrPatches.Fields.Item("HotfixID")) & _
+			""" installdate=""" & Scrub4XML(objDbrPatches.Fields.Item("InstallDate")) & """ />"
+			objDbrPatches.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </patches>"
+	End If
+
+	objXMLFile = objXMLFile & " <installedapplications>"
+	' msiapplications
+	If (bWMIApplications) Then
+		
+		If Not (objDbrProducts.Bof) Then
+			objDbrProducts.MoveFirst
+		End If
+		Do Until objDbrProducts.EOF
+			objXMLFile = objXMLFile & "  <msiapplication productname=""" & Scrub4XML(objDbrProducts.Fields.Item("ProductName")) &_
+				""" vendor=""" & Scrub4XML(objDbrProducts.Fields.Item("Vendor")) & _
+				""" version=""" & Scrub4XML(objDbrProducts.Fields.Item("Version")) & _
+				""" installdate=""" & CStr(objDbrProducts.Fields.Item("InstallDate")) & """ />"
+			objDbrProducts.MoveNext
+		Loop
+		
+	End If
+
+	' Registry Applications
+	If (bRegPrograms) Then
+		If Not (objDbrRegPrograms.Bof) Then
+			objDbrRegPrograms.MoveFirst
+		End If
+		Do Until objDbrRegPrograms.EOF
+			objXMLFile = objXMLFile & "  <regapplication productname=""" & Scrub4XML(objDbrRegPrograms.Fields.Item("DisplayName")) &_
+			""" version=""" & Scrub4XML(objDbrRegPrograms.Fields.Item("DisplayVersion")) & """ />"
+			objDbrRegPrograms.MoveNext
+		Loop
+
+	End If
+
+	' Product Keys
+	If (bRegProductKeys) Then
+		If Not (objDbrRegProductKeys.Bof) Then
+			objDbrRegProductKeys.Movefirst
+		End If
+		Do Until objDbrRegProductKeys.Eof
+			objXMLFile = objXMLFile & "  <productkey productname=""" & Scrub4XML(objDbrRegProductKeys("ProductName")) & _
+				""" productkey=""" & Scrub4XML(objDbrRegProductKeys("ProductKey")) & """ />"
+			objDbrRegProductKeys.MoveNext
+		Loop
+	End If
+	
+	
+	
+	objXMLFile = objXMLFile & " </installedapplications>"
+	' storage
+	objXMLFile = objXMLFile & " <storage>"
+	If Not (objDbrDrives.Bof) Then
+		objDbrDrives.Movefirst
+	End If
+	Do Until objDbrDrives.Eof
+		objXMLFile = objXMLFile & "  <drives name=""" & objDbrDrives.Fields.Item("Caption") & _
+			""" deviceid=""" & objDbrDrives.Fields.Item("DeviceID") & _
+			""" interface=""" & objDbrDrives.Fields.Item("InterfaceType") & _
+			""" totaldisksize=""" & Round(ReturnBytes2Gigabytes(objDbrDrives.Fields.Item("Size")), 2) & """>"
+		If Not (objDbrDisks.Bof) Then
+			objDbrDisks.MoveFirst
+		End If
+		objDbrDisks.Filter = " ParentDriveID='" & objDbrDrives.Fields.Item("DeviceID") & "'"
+		Do Until objDbrDisks.Eof
+			objXMLFile = objXMLFile & "   <partition name=""" & objDbrDisks.Fields.Item("Caption") & _
+				""" size=""" & Round(ReturnBytes2Gigabytes(objDbrDisks.Fields.Item("Size")),2) & _
+				""" freespace=""" & Round(ReturnBytes2Gigabytes(objDbrDisks.Fields.Item("FreeSpace")),2) & _
+				""" filesystem=""" & objDbrDisks.Fields.Item("FileSystem") & """ />"
+			objDbrDisks.MoveNext
+		Loop
+		objDbrDrives.MoveNext
+		objXMLFile = objXMLFile & "  </drives>"
+	Loop
+	objXMLFile = objXMLFile & " </storage>"	
+
+	' network configuration
+	objXMLFile = objXMLFile & " <network>"
+	For i = 0 To UBound(arrNetadapter_Description)
+		objXMLFile = objXMLFile & "  <adapter description=""" & arrNetadapter_Description(i) & _
+			""" macaddress=""" & arrNetadapter_MACAddress(i) & """>"
+		For j = 0 To UBound(arrNetadapter_IPAddress,2)
+			If (arrNetadapter_IPAddress(i,j) <> "") Then
+				objXMLFile = objXMLFile & "   <ip address=""" & arrNetadapter_IPAddress(i,j) & _
+					""" subnetmask=""" &  arrNetadapter_IPSubnet(i,j) & """ />"
+			End If
+			
+		Next
+		For j = 0 To UBound(arrNetadapter_DefaultIPGateway,2)
+			objXMLFile = objXMLFile & "   <gateway address=""" & arrNetadapter_DefaultIPGateway(i,j) & """ />"
+		Next
+		
+		For j = 0 To Ubound(arrNetadapter_DNSServerSearchOrder,2)
+			If (arrNetadapter_DNSServerSearchOrder(i,j) <> "") Then
+				objXMLFile = objXMLFile & "   <dnsserver address=""" & arrNetadapter_DNSServerSearchOrder(i,j) & """ />"
+			End If
+		Next
+		objXMLFile = objXMLFile & "   <dnsdomain name=""" & arrNetadapter_DNS(i) & """ />"
+		If (arrNetadapter_WINSPrimaryServer(i) <> "" And arrNetadapter_WINSPrimaryServer(i) <> "127.0.0.0") Then
+			objXMLFile = objXMLFile & "   <primarywins address=""" & arrNetadapter_WINSPrimaryServer(i) & """ />"
+		End If
+		If (arrNetadapter_WINSSecondaryServer(i) <> "" And arrNetadapter_WINSSecondaryServer(i) <> "127.0.0.0") Then
+			objXMLFile = objXMLFile & "   <secondarywins address=""" & arrNetadapter_WINSSecondaryServer(i) & """ />"
+		End If
+		If (arrNetadapter_DHCPEnabled(i)) Then
+		 objXMLFile = objXMLFile & "   <dhcpserver address=""" & arrNetadapter_DHCPServer(i) & """ />"
+		End If
+		objXMLFile = objXMLFile & "  </adapter>"
+	Next
+	
+	If (bWMIIP4Routes) Then
+		objXMLFile = objXMLFile & "  <ip4routes>"
+		If Not (objDbrIP4RouteTable.Bof) Then
+			objDbrIP4RouteTable.Movefirst
+			Do Until objDbrIP4RouteTable.EOF
+				objXMLFile = objXMLFile & "   <route destination=""" & Scrub4XML(objDbrIP4RouteTable.Fields.Item("Destination")) & _
+					""" mask=""" & Scrub4XML(objDbrIP4RouteTable.Fields.Item("Mask")) & _
+					""" nexthop=""" & Scrub4XML(objDbrIP4RouteTable.Fields.Item("nexthop")) & """ />"
+				objDbrIP4RouteTable.MoveNext
+			Loop
+		End If
+		objXMLFile = objXMLFile & "  </ip4routes>"
+	End If	
+	
+	
+	objXMLFile = objXMLFile & " </network>"
+
+	' IIS Settings
+	If (bHasMicrosoftIISv2) Then
+		ReportProgress " Writing IIS Information"
+		objXMLFile = objXMLFile & " <microsoftiisv2>"
+		If Not (objDbrIISWebServerSetting.Bof) Then
+			objDbrIISWebServerSetting.Movefirst
+		End If				
+		Do Until objDbrIISWebServerSetting.Eof
+			objXMLFile = objXMLFile & "  <iiswebserversetting name=""" & Scrub4XML(objDbrIISWebServerSetting("Name")) & _
+				""" servercomment=""" & Scrub4XML(objDbrIISWebServerSetting("servercomment")) & """>"
+			If Not (objDbrIISVirtualDirSetting.Bof) Then
+				objDbrIISVirtualDirSetting.Movefirst
+			End If			
+			objDbrIISVirtualDirSetting.Filter = " Name='" & objDbrIISWebServerSetting("Name") & "/root'"
+			Do Until objDbrIISVirtualDirSetting.Eof
+				objXMLFile = objXMLFile & "   <homedirectory path=""" & Scrub4XML(objDbrIISVirtualDirSetting("Path"))  & """ />"
+				objDbrIISVirtualDirSetting.MoveNext
+			Loop
+			objDbrIISWebServerBindings.Filter = " ServerName='" & objDbrIISWebServerSetting("Name") & "'"
+			
+			If Not (objDbrIISWebServerBindings.Bof) Then
+				objDbrIISWebServerBindings.MoveFirst
+			End If
+			Do Until objDbrIISWebServerBindings.EOF
+				objXMLFile = objXMLFile & "   <serverbindings hostname=""" & Scrub4XML(objDbrIISWebServerBindings("Hostname")) & _
+					""" ip=""" & Scrub4XML(objDbrIISWebServerBindings("Ip")) & _
+					""" port=""" & Scrub4XML(objDbrIISWebServerBindings("Port")) & """ />"
+				objDbrIISWebServerBindings.MoveNext
+			Loop
+			
+			objXMLFile = objXMLFile & "  </iiswebserversetting>"
+			objDbrIISWebServerSetting.Movenext
+		Loop
+		objXMLFile = objXMLFile & " </microsoftiisv2>"
+	End If
+
+	' eventlogfiles
+	If (bWMIEventLogFile) Then
+		objXMLFile = objXMLFile & " <eventlogfiles>"
+		objDbrEventLogFile.Movefirst
+		Do Until objDbrEventLogFile.Eof
+			objXMLFile = objXMLFile & "  <eventlogfile name=""" & CStr(objDbrEventLogFile.Fields.Item("LogFileName")) & _
+				""" file=""" & objDbrEventLogFile.Fields.Item("Name") & _
+				""" maximumsize=""" & ReturnBytes2Megabytes(objDbrEventLogFile.Fields.Item("MaxFileSize")) & _
+				""" overwritepolicy=""" & objDbrEventLogFile.Fields.Item("OverwritePolicy") & """ />"
+			objDbrEventLogFile.Movenext
+		Loop		
+		objXMLFile = objXMLFile & " </eventlogfiles>"
+	End If
+
+	' local groups
+	If (bWMILocalGroups) Then
+		objXMLFile = objXMLFile & " <localgroups>"
+		If Not (objDbrLocalGroups.Bof) Then
+			objDbrLocalGroups.Movefirst
+		End If
+		Do Until objDbrLocalGroups.Eof
+			objXMLFile = objXMLFile & "  <group name=""" & Scrub4XML(objDbrLocalGroups.Fields.Item("Name")) & """>"
+			objDbrGroupUser.Filter = " Groupname='" & objDbrLocalGroups.Fields.Item("Name") & "'"
+			Do Until objDbrGroupUser.Eof
+				objXMLFile = objXMLFile & "   <member name=""" & Scrub4XML(objDbrGroupUser.Fields.Item("Member")) & """ />"
+				objDbrGroupUser.MoveNext
+			Loop			
+			objDbrLocalGroups.Movenext
+			objXMLFile = objXMLFile & "  </group>"
+		Loop
+		objXMLFile = objXMLFile & " </localgroups>"
+	End If
+
+		
+	' local users
+	If (bWMILocalAccounts) Then
+		objXMLFile = objXMLFile & " <localusers>"
+		If Not (objDbrLocalAccounts.Bof) Then
+			objDbrLocalAccounts.Movefirst
+		End If
+		Do Until objDbrLocalAccounts.Eof
+			objXMLFile = objXMLFile & "  <user name=""" & Scrub4XML(objDbrLocalAccounts.Fields.Item("UserName")) & """ description=""" & Scrub4XML(objDbrLocalAccounts.Fields.Item("Description")) & """ />"
+			objDbrLocalAccounts.Movenext
+		Loop
+		objXMLFile = objXMLFile & " </localusers>"
+	End If
+	
+	' printspooler location
+	If (bRegPrintSpoolLocation) Then
+		objXMLFile = objXMLFile & " <printspooler location=""" & strPrintSpoolLocation & """ />"
+	End If
+
+	' printers
+	If (bWMIPrinters) Then
+		If (objDbrPrinters.Recordcount > 0) Then
+			objXMLFile = objXMLFile & " <printers>"
+			objDbrPrinters.MoveFirst
+			Do Until objDbrPrinters.EOF
+				objXMLFile = objXMLFile & "  <printer name=""" & Scrub4XML(objDbrPrinters.Fields.Item("Name")) & _
+					""" drivername=""" & Scrub4XML(objDbrPrinters.Fields.Item("DriverName")) & _
+					""" portname=""" & Scrub4XML(objDbrPrinters.Fields.Item("PortName")) & """ />"
+				objDbrPrinters.MoveNext
+			Loop
+			objXMLFile = objXMLFile & " </printers>"
+		End If	
+	End If
+	
+	' regional settings
+	objXMLFile = objXMLFile & " <regional timezone=""" & Scrub4XML(strTimeZone) & """ />"
+
+	' Running Processes
+	If (bWMIRunningProcesses) Then
+		ReportProgress " Writing Processes information"
+		objXMLFile = objXMLFile & " <processes>"
+		If Not (objDbrProcess.Bof) Then
+			objDbrProcess.MoveFirst
+		End If
+		Do Until objDbrProcess.EOF
+			objXMLFile = objXMLFile & "  <process caption=""" & Scrub4XML(objDbrProcess.Fields.Item("Caption")) &_
+			""" executablepath=""" & Scrub4XML(objDbrProcess.Fields.Item("ExecutablePath")) & """ />"
+			objDbrProcess.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </processes>"
+	End If
+	
+	
+	' services
+	If (bWMIServices) Then
+		objXMLFile = objXMLFile & " <services>"
+		If Not (objDbrServices.Bof) Then
+			objDbrServices.MoveFirst
+		End If
+		Do Until objDbrServices.EOF
+			objXMLFile = objXMLFile & "  <service name=""" & Scrub4XML(objDbrServices.Fields.Item("Caption")) & _
+				""" startmode=""" & CStr(objDbrServices.Fields.Item("StartMode")) & _
+				""" started=""" & CStr(objDbrServices.Fields.Item("Started")) & _
+				""" startname=""" & Scrub4XML(objDbrServices.Fields.Item("StartName")) & """ />"
+				objDbrServices.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </services>"
+	End If
+	
+	' shares
+	If (bWMIFileShares) Then
+		objXMLFile = objXMLFile & " <shares>"
+		If Not (objDbrShares.Bof) Then
+			objDbrShares.MoveFirst
+		End If
+		Do Until objDbrShares.EOF
+			objXMLFile = objXMLFile & "  <share name=""" & Scrub4XML(objDbrShares.Fields.Item("Name")) & _
+				""" path=""" & Scrub4XML(objDbrShares.Fields.Item("Path")) & _
+				""" description=""" & Scrub4XML(objDbrShares.Fields.Item("Description")) & """ />"
+			objDbrShares.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </shares>"
+	End If
+	
+	' Startup Commands
+	If (bWMIStartupCommands) Then
+		objXMLFile = objXMLFile & " <win32_startupcommand>"
+		If Not (objDbrStartupCommand.Bof) Then
+			objDbrStartupCommand.MoveFirst
+		End If
+		Do Until objDbrStartupCommand.EOF
+			objXMLFile = objXMLFile & "  <command user=""" & Scrub4XML(objDbrStartupCommand.Fields.Item("User")) & _
+				""" name=""" & Scrub4XML(objDbrStartupCommand.Fields.Item("Name")) &_
+				""" command=""" & Scrub4XML(objDbrStartupCommand.Fields.Item("Command")) & """ />"
+			objDbrStartupCommand.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </win32_startupcommand>"
+	End If
+	
+	' virtual memory
+	objXMLFile = objXMLFile & " <pagefiles>"
+	If Not (objDbrPagefile.Bof) Then
+		objDbrPagefile.Movefirst
+	End If
+	Do Until objDbrPagefile.Eof
+		objXMLFile = objXMLFile & "  <pagefile drive=""" & objDbrPagefile.Fields.Item("Drive") & _
+			""" initialsize=""" & objDbrPagefile.Fields.Item("InitialSize") & _
+			""" maximumsize=""" & objDbrPagefile.Fields.Item("MaximumSize") & """ />"
+		objDbrPagefile.Movenext
+	Loop
+	objXMLFile = objXMLFile & " </pagefiles>"
+
+	' registry	
+	If (bWMIRegistry) Then
+		objXMLFile = objXMLFile & " <registry currentsize=""" & nCurrentSize & """ maximumsize=""" & nMaximumSize & """ />" 
+	End If
+	
+	objXMLFile = objXMLFile & "</computer>"
+
+	' Now we try to post the data
+	objWeb.open "POST", strWebUrl, False
+	objWeb.setRequestHeader "Content-Type", "application/x-www-form-urlencoded"
+	Dim mSendData 
+	mSendData = "contents=" & objXMLFile
+	'objWeb.setRequestHeader "Content-Length", len(mSendData)
+	objWeb.send mSendData
+	ReportProgress "Response: " & objWeb.responseText
+	ReportProgress "About to send to http: " & strWebUrl
+	
+	
+	Set objWeb = Nothing
+
+	ReportProgress "End subroutine: PopulateHttp()"
+
+End Sub 'PopulateHttp
+
+Sub PopulateAwdit()
+	Dim objWeb, objXMLFile
+	strWebUrl = "https://www.awdit.com/feeds/submit/"
+	ReportProgress VbCrLf & "Start subroutine: PopulateAwdit()"
+
+	'Set objWeb = CreateObject("Microsoft.XMLHTTP")
+	Set objWeb = CreateObject("MSXML2.ServerXMLHTTP")
+
+	objXMLFile = objXMLFile & "<?xml version=""1.0"" encoding=""ISO-8859-1"" ?>"
+	Select Case strStylesheet
+		Case "html"
+			objXMLFile = objXMLFile & "<?xml-stylesheet type=""text/xsl"" href=""serverhtml.xsl""?>"
+		Case "freetext"
+			objXMLFile = objXMLFile & "<?xml-stylesheet type=""text/xsl"" href=""" & strXSLFreeText & """?>"
+	End Select
+	
+	objXMLFile = objXMLFile & "<computer>"
+	' generated
+	objXMLFile = objXMLFile & " <generated script=""sydi-server"" version=""" & strScriptVersion & """ scantime=""" & ConvertDateToShortUTC(now) & """ />"
+	' computer
+	objXMLFile = objXMLFile & " <system name=""" & strComputerSystem_Name & """ />" 
+	' operatingsystem
+	objXMLFile = objXMLFile & " <operatingsystem name=""" & Scrub4Web(strOperatingSystem_Caption) & """ servicepack=""" & strOperatingSystem_ServicePack & """ />" 
+	If (bRegDomainSuffix) Then
+		' fqdn
+		objXMLFile = objXMLFile & " <fqdn name=""" &  LCase(strComputerSystem_Name) & "." & strPrimaryDomain & """ />" 
+	End If
+
+	' Roles
+	objXMLFile = objXMLFile & " <roles>"
+	If Not (objDbrSystemRoles.Bof) Then
+		objDbrSystemRoles.MoveFirst
+	End If
+	Do Until objDbrSystemRoles.EOF
+		objXMLFile = objXMLFile & "  <role name=""" & Cstr(objDbrSystemRoles.Fields.Item("Role")) & """ />"
+		objDbrSystemRoles.MoveNext
+	Loop	
+	objXMLFile = objXMLFile & " </roles>"
+	
+	' machineinfo
+	objXMLFile = objXMLFile & " <machineinfo manufacturer=""" & strComputerSystemProduct_Manufacturer & _
+	""" productname=""" & strComputerSystemProduct_Name & """ identifyingnumber=""" &  strComputerSystemProduct_IdentifyingNumber & _
+	""" chassis=""" & strChassisType & """ />" 
+	
+	' Processors
+	objXMLFile = objXMLFile & " <processor count=""" & intProcessors & _
+		""" name=""" & strProcessor_Name & _
+		""" description=""" & strProcessor_Description & _
+		""" speed=""" & strProcessor_MaxClockSpeed & _
+		""" l2cachesize=""" & strProcessor_L2CacheSize & _
+		""" externalclock=""" & strProcessor_ExtClock & _
+		""" htsystem=""" & bProcessorHTSystem & """ />"
+
+	' Memory
+	objXMLFile = objXMLFile & " <memory totalsize=""" & strTotalPhysicalMemoryMB & """>"
+	If Not (objDbrPhysicalMemory.Bof) Then
+		objDbrPhysicalMemory.MoveFirst
+	End If
+	Do Until objDbrPhysicalMemory.EOF
+		objXMLFile = objXMLFile & "  <memorybank bank=""" & Scrub4Web(objDbrPhysicalMemory.Fields.Item("BankLabel")) & _
+			""" capacity=""" & ReturnBytes2Megabytes(objDbrPhysicalMemory.Fields.Item("Capacity")) & _
+			""" formfactor=""" & ReturnPhysicalMemoryFormFactor(objDbrPhysicalMemory.Fields.Item("FormFactor")) & _
+			""" memorytype=""" & ReturnPhysicalMemoryMemoryType(objDbrPhysicalMemory.Fields.Item("MemoryType")) & """ />"
+		objDbrPhysicalMemory.MoveNext
+	Loop
+	objXMLFile = objXMLFile & " </memory>"
+
+	objXMLFile = objXMLFile & " <win32_cdromdrive>"
+	If Not (objDbrCDROMDrive.Bof) Then
+		objDbrCDROMDrive.MoveFirst
+	End If
+	Do Until objDbrCDROMDrive.EOF
+		objXMLFile = objXMLFile & "  <cdrom name=""" & Scrub4Web(objDbrCDROMDrive.Fields.Item("Name")) & _
+			""" drive=""" & Scrub4Web(objDbrCDROMDrive.Fields.Item("Drive")) & _
+			""" manufacturer=""" & Scrub4Web(objDbrCDROMDrive.Fields.Item("Manufacturer")) & """ />"
+		objDbrCDROMDrive.MoveNext
+	Loop
+	objXMLFile = objXMLFile & " </win32_cdromdrive>"
+	
+	'Tape Drive
+	If (bHasTapeDrive) Then
+		objXMLFile = objXMLFile & " <win32_tapedrive>"
+		If Not (objDbrTapeDrive.Bof) Then
+			objDbrTapeDrive.MoveFirst
+		End If
+		Do Until objDbrTapeDrive.EOF
+			objXMLFile = objXMLFile & "  <tapedrive name=""" & Scrub4Web(objDbrTapeDrive.Fields.Item("Name")) & _
+				""" description=""" & Scrub4Web(objDbrTapeDrive.Fields.Item("Description")) & _
+				""" manufacturer=""" & Scrub4Web(objDbrTapeDrive.Fields.Item("Manufacturer")) & """ />"
+			objDbrTapeDrive.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </win32_tapedrive>"
+	End If
+	
+	'Video Controller
+	If (bWMIHardware) Then
+		objXMLFile = objXMLFile & " <videocontroller>"
+		If Not (objDbrVideoController.Bof) Then
+			objDbrVideoController.MoveFirst
+		End If
+		Do Until objDbrVideoController.EOF
+			objXMLFile = objXMLFile & "  <adapter name=""" & Scrub4Web(objDbrVideoController.Fields.Item("Name")) & _
+				""" adapterram=""" & ReturnBytes2Megabytes(objDbrVideoController.Fields.Item("adapterram")) & _
+				""" compatibility=""" & Scrub4Web(objDbrVideoController.Fields.Item("AdapterCompatibility")) & """ />"
+			objDbrVideoController.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </videocontroller>"
+	End If
+
+	If (bWMIHardware) Then
+		'Sound Card Information
+		objXMLFile = objXMLFile & " <win32_sounddevice>"
+		If Not (objDbrSoundDevice.Bof) Then
+			objDbrSoundDevice.MoveFirst
+		End If
+		Do Until objDbrSoundDevice.EOF
+			objXMLFile = objXMLFile & "  <card name=""" & Scrub4Web(objDbrSoundDevice.Fields.Item("Name")) & _
+				""" manufacturer=""" & Scrub4Web(objDbrSoundDevice.Fields.Item("Manufacturer")) & """ />"
+			objDbrSoundDevice.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </win32_sounddevice>"
+	End If
+
+	
+	' Bios Versions
+	If (bWMIBios) Then	
+		objXMLFile = objXMLFile & " <bios version=""" & strBIOS_Version & """ smbiosversion=""" & strBIOS_SMBIOSBIOSVersion & _
+			""" smbiosmajorversion=""" & strBIOS_SMBIOSMajorVersion &_
+			""" smbbiosminorversion=""" & strBIOS_SMBIOSMinorVersion & """>"
+
+		For i = 0 To Ubound(arrBIOS_BiosCharacteristics)
+			objXMLFile = objXMLFile & "  <bioscharacteristics id=""" & arrBIOS_BiosCharacteristics(i) & _
+				""" name=""" & Cstr(ReturnBiosCharacteristic(arrBIOS_BiosCharacteristics(i))) & """ />"
+		Next
+		objXMLFile = objXMLFile & " </bios>"
+	End If
+	
+	' OS Configuration
+	objXMLFile = objXMLFile & " <osconfiguration osname=""" & strOperatingSystem_Caption & _
+		""" computerrole=""" & strComputerRole & _
+		""" domainname=""" & strComputerSystem_Domain & _
+		""" domaintype=""" & strDomainType & _
+		""" windowslocation=""" & strOperatingSystem_WindowsDirectory & _
+		""" oslanguage=""" & ReturnOperatingSystemLanguage(strOperatingSystem_LanguageCode) & _
+		""" installdate=""" & ConvertWMIDate(strOperatingSystem_InstallDate) & """ />"
+
+	' Last User
+	If (bRegLastUser) Then
+		objXMLFile = objXMLFile & " <lastuser name=""" & strLastUser & """ />"
+	End If
+
+	' Windows Components
+	If (bRegWindowsComponents) Then
+		objXMLFile = objXMLFile & " <windowscomponents>"
+		If Not (objDbrWindowsComponents.Bof) Then
+			objDbrWindowsComponents.Movefirst
+		End If
+		Do Until objDbrWindowsComponents.EoF
+			If (objDbrWindowsComponents.Fields.Item("ClassName") <> "Hidden") Then
+				objXMLFile = objXMLFile & "  <component name=""" & CStr(objDbrWindowsComponents.Fields.Item("DisplayName")) & _
+					""" class=""" & objDbrWindowsComponents.Fields.Item("Class") & _
+					""" classname=""" & CStr(objDbrWindowsComponents.Fields.Item("ClassName")) & _
+					""" level=""" & objDbrWindowsComponents.Fields.Item("Level") & """ />"
+			End If
+			objDbrWindowsComponents.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </windowscomponents>"
+	End If
+
+	' Patches
+	If (bWMIPatches) Then
+		objXMLFile = objXMLFile & " <patches>" 
+		If Not (objDbrPatches.Bof) Then
+			objDbrPatches.Movefirst
+		End If
+		Do Until objDbrPatches.Eof
+			objXMLFile = objXMLFile & "  <patch description=""" &  Scrub4Web(objDbrPatches.Fields.Item("Description")) & _
+			""" hotfixid=""" & Scrub4Web(objDbrPatches.Fields.Item("HotfixID")) & _
+			""" installdate=""" & Scrub4Web(objDbrPatches.Fields.Item("InstallDate")) & """ />"
+			objDbrPatches.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </patches>"
+	End If
+
+	objXMLFile = objXMLFile & " <installedapplications>"
+	' msiapplications
+	If (bWMIApplications) Then
+		
+		If Not (objDbrProducts.Bof) Then
+			objDbrProducts.MoveFirst
+		End If
+		Do Until objDbrProducts.EOF
+			objXMLFile = objXMLFile & "  <msiapplication productname=""" & Scrub4Web(objDbrProducts.Fields.Item("ProductName")) &_
+				""" vendor=""" & Scrub4Web(objDbrProducts.Fields.Item("Vendor")) & _
+				""" version=""" & Scrub4Web(objDbrProducts.Fields.Item("Version")) & _
+				""" installdate=""" & CStr(objDbrProducts.Fields.Item("InstallDate")) & """ />"
+			objDbrProducts.MoveNext
+		Loop
+		
+	End If
+
+	' Registry Applications
+	If (bRegPrograms) Then
+		If Not (objDbrRegPrograms.Bof) Then
+			objDbrRegPrograms.MoveFirst
+		End If
+		Do Until objDbrRegPrograms.EOF
+			objXMLFile = objXMLFile & "  <regapplication productname=""" & Scrub4Web(objDbrRegPrograms.Fields.Item("DisplayName")) &_
+			""" version=""" & Scrub4Web(objDbrRegPrograms.Fields.Item("DisplayVersion")) & """ />"
+			objDbrRegPrograms.MoveNext
+		Loop
+
+	End If
+
+	' Product Keys
+	If (bRegProductKeys) Then
+		If Not (objDbrRegProductKeys.Bof) Then
+			objDbrRegProductKeys.Movefirst
+		End If
+		Do Until objDbrRegProductKeys.Eof
+			objXMLFile = objXMLFile & "  <productkey productname=""" & Scrub4Web(objDbrRegProductKeys("ProductName")) & _
+				""" productkey=""" & Scrub4Web(objDbrRegProductKeys("ProductKey")) & """ />"
+			objDbrRegProductKeys.MoveNext
+		Loop
+	End If
+	
+	
+	
+	objXMLFile = objXMLFile & " </installedapplications>"
+	' storage
+	objXMLFile = objXMLFile & " <storage>"
+	If Not (objDbrDrives.Bof) Then
+		objDbrDrives.Movefirst
+	End If
+	Do Until objDbrDrives.Eof
+		objXMLFile = objXMLFile & "  <drives name=""" & objDbrDrives.Fields.Item("Caption") & _
+			""" deviceid=""" & objDbrDrives.Fields.Item("DeviceID") & _
+			""" interface=""" & objDbrDrives.Fields.Item("InterfaceType") & _
+			""" totaldisksize=""" & Round(ReturnBytes2Gigabytes(objDbrDrives.Fields.Item("Size")), 2) & """>"
+		If Not (objDbrDisks.Bof) Then
+			objDbrDisks.MoveFirst
+		End If
+		objDbrDisks.Filter = " ParentDriveID='" & objDbrDrives.Fields.Item("DeviceID") & "'"
+		Do Until objDbrDisks.Eof
+			objXMLFile = objXMLFile & "   <partition name=""" & objDbrDisks.Fields.Item("Caption") & _
+				""" size=""" & Round(ReturnBytes2Gigabytes(objDbrDisks.Fields.Item("Size")),2) & _
+				""" freespace=""" & Round(ReturnBytes2Gigabytes(objDbrDisks.Fields.Item("FreeSpace")),2) & _
+				""" filesystem=""" & objDbrDisks.Fields.Item("FileSystem") & """ />"
+			objDbrDisks.MoveNext
+		Loop
+		objDbrDrives.MoveNext
+		objXMLFile = objXMLFile & "  </drives>"
+	Loop
+	objXMLFile = objXMLFile & " </storage>"	
+
+	' network configuration
+	objXMLFile = objXMLFile & " <network>"
+	For i = 0 To UBound(arrNetadapter_Description)
+		objXMLFile = objXMLFile & "  <adapter description=""" & arrNetadapter_Description(i) & _
+			""" macaddress=""" & arrNetadapter_MACAddress(i) & """>"
+		For j = 0 To UBound(arrNetadapter_IPAddress,2)
+			If (arrNetadapter_IPAddress(i,j) <> "") Then
+				objXMLFile = objXMLFile & "   <ip address=""" & arrNetadapter_IPAddress(i,j) & _
+					""" subnetmask=""" &  arrNetadapter_IPSubnet(i,j) & """ />"
+			End If
+			
+		Next
+		For j = 0 To UBound(arrNetadapter_DefaultIPGateway,2)
+			objXMLFile = objXMLFile & "   <gateway address=""" & arrNetadapter_DefaultIPGateway(i,j) & """ />"
+		Next
+		
+		For j = 0 To Ubound(arrNetadapter_DNSServerSearchOrder,2)
+			If (arrNetadapter_DNSServerSearchOrder(i,j) <> "") Then
+				objXMLFile = objXMLFile & "   <dnsserver address=""" & arrNetadapter_DNSServerSearchOrder(i,j) & """ />"
+			End If
+		Next
+		objXMLFile = objXMLFile & "   <dnsdomain name=""" & arrNetadapter_DNS(i) & """ />"
+		If (arrNetadapter_WINSPrimaryServer(i) <> "" And arrNetadapter_WINSPrimaryServer(i) <> "127.0.0.0") Then
+			objXMLFile = objXMLFile & "   <primarywins address=""" & arrNetadapter_WINSPrimaryServer(i) & """ />"
+		End If
+		If (arrNetadapter_WINSSecondaryServer(i) <> "" And arrNetadapter_WINSSecondaryServer(i) <> "127.0.0.0") Then
+			objXMLFile = objXMLFile & "   <secondarywins address=""" & arrNetadapter_WINSSecondaryServer(i) & """ />"
+		End If
+		If (arrNetadapter_DHCPEnabled(i)) Then
+		 objXMLFile = objXMLFile & "   <dhcpserver address=""" & arrNetadapter_DHCPServer(i) & """ />"
+		End If
+		objXMLFile = objXMLFile & "  </adapter>"
+	Next
+	
+	If (bWMIIP4Routes) Then
+		objXMLFile = objXMLFile & "  <ip4routes>"
+		If Not (objDbrIP4RouteTable.Bof) Then
+			objDbrIP4RouteTable.Movefirst
+			Do Until objDbrIP4RouteTable.EOF
+				objXMLFile = objXMLFile & "   <route destination=""" & Scrub4Web(objDbrIP4RouteTable.Fields.Item("Destination")) & _
+					""" mask=""" & Scrub4Web(objDbrIP4RouteTable.Fields.Item("Mask")) & _
+					""" nexthop=""" & Scrub4Web(objDbrIP4RouteTable.Fields.Item("nexthop")) & """ />"
+				objDbrIP4RouteTable.MoveNext
+			Loop
+		End If
+		objXMLFile = objXMLFile & "  </ip4routes>"
+	End If	
+	
+	
+	objXMLFile = objXMLFile & " </network>"
+
+	' IIS Settings
+	If (bHasMicrosoftIISv2) Then
+		ReportProgress " Writing IIS Information"
+		objXMLFile = objXMLFile & " <microsoftiisv2>"
+		If Not (objDbrIISWebServerSetting.Bof) Then
+			objDbrIISWebServerSetting.Movefirst
+		End If				
+		Do Until objDbrIISWebServerSetting.Eof
+			objXMLFile = objXMLFile & "  <iiswebserversetting name=""" & Scrub4Web(objDbrIISWebServerSetting("Name")) & _
+				""" servercomment=""" & Scrub4Web(objDbrIISWebServerSetting("servercomment")) & """>"
+			If Not (objDbrIISVirtualDirSetting.Bof) Then
+				objDbrIISVirtualDirSetting.Movefirst
+			End If			
+			objDbrIISVirtualDirSetting.Filter = " Name='" & objDbrIISWebServerSetting("Name") & "/root'"
+			Do Until objDbrIISVirtualDirSetting.Eof
+				objXMLFile = objXMLFile & "   <homedirectory path=""" & Scrub4Web(objDbrIISVirtualDirSetting("Path"))  & """ />"
+				objDbrIISVirtualDirSetting.MoveNext
+			Loop
+			objDbrIISWebServerBindings.Filter = " ServerName='" & objDbrIISWebServerSetting("Name") & "'"
+			
+			If Not (objDbrIISWebServerBindings.Bof) Then
+				objDbrIISWebServerBindings.MoveFirst
+			End If
+			Do Until objDbrIISWebServerBindings.EOF
+				objXMLFile = objXMLFile & "   <serverbindings hostname=""" & Scrub4Web(objDbrIISWebServerBindings("Hostname")) & _
+					""" ip=""" & Scrub4Web(objDbrIISWebServerBindings("Ip")) & _
+					""" port=""" & Scrub4Web(objDbrIISWebServerBindings("Port")) & """ />"
+				objDbrIISWebServerBindings.MoveNext
+			Loop
+			
+			objXMLFile = objXMLFile & "  </iiswebserversetting>"
+			objDbrIISWebServerSetting.Movenext
+		Loop
+		objXMLFile = objXMLFile & " </microsoftiisv2>"
+	End If
+
+	' eventlogfiles
+	If (bWMIEventLogFile) Then
+		objXMLFile = objXMLFile & " <eventlogfiles>"
+		objDbrEventLogFile.Movefirst
+		Do Until objDbrEventLogFile.Eof
+			objXMLFile = objXMLFile & "  <eventlogfile name=""" & CStr(objDbrEventLogFile.Fields.Item("LogFileName")) & _
+				""" file=""" & objDbrEventLogFile.Fields.Item("Name") & _
+				""" maximumsize=""" & ReturnBytes2Megabytes(objDbrEventLogFile.Fields.Item("MaxFileSize")) & _
+				""" overwritepolicy=""" & objDbrEventLogFile.Fields.Item("OverwritePolicy") & """ />"
+			objDbrEventLogFile.Movenext
+		Loop		
+		objXMLFile = objXMLFile & " </eventlogfiles>"
+	End If
+
+	' local groups
+	If (bWMILocalGroups) Then
+		objXMLFile = objXMLFile & " <localgroups>"
+		If Not (objDbrLocalGroups.Bof) Then
+			objDbrLocalGroups.Movefirst
+		End If
+		Do Until objDbrLocalGroups.Eof
+			objXMLFile = objXMLFile & "  <group name=""" & Scrub4Web(objDbrLocalGroups.Fields.Item("Name")) & """>"
+			objDbrGroupUser.Filter = " Groupname='" & objDbrLocalGroups.Fields.Item("Name") & "'"
+			Do Until objDbrGroupUser.Eof
+				objXMLFile = objXMLFile & "   <member name=""" & Scrub4Web(objDbrGroupUser.Fields.Item("Member")) & """ />"
+				objDbrGroupUser.MoveNext
+			Loop			
+			objDbrLocalGroups.Movenext
+			objXMLFile = objXMLFile & "  </group>"
+		Loop
+		objXMLFile = objXMLFile & " </localgroups>"
+	End If
+
+		
+	' local users
+	If (bWMILocalAccounts) Then
+		objXMLFile = objXMLFile & " <localusers>"
+		If Not (objDbrLocalAccounts.Bof) Then
+			objDbrLocalAccounts.Movefirst
+		End If
+		Do Until objDbrLocalAccounts.Eof
+			objXMLFile = objXMLFile & "  <user name=""" & Scrub4Web(objDbrLocalAccounts.Fields.Item("UserName")) & """ description=""" & Scrub4Web(objDbrLocalAccounts.Fields.Item("Description")) & """ />"
+			objDbrLocalAccounts.Movenext
+		Loop
+		objXMLFile = objXMLFile & " </localusers>"
+	End If
+	
+	' printspooler location
+	If (bRegPrintSpoolLocation) Then
+		objXMLFile = objXMLFile & " <printspooler location=""" & strPrintSpoolLocation & """ />"
+	End If
+
+	' printers
+	If (bWMIPrinters) Then
+		If (objDbrPrinters.Recordcount > 0) Then
+			objXMLFile = objXMLFile & " <printers>"
+			objDbrPrinters.MoveFirst
+			Do Until objDbrPrinters.EOF
+				objXMLFile = objXMLFile & "  <printer name=""" & Scrub4Web(objDbrPrinters.Fields.Item("Name")) & _
+					""" drivername=""" & Scrub4Web(objDbrPrinters.Fields.Item("DriverName")) & _
+					""" portname=""" & Scrub4Web(objDbrPrinters.Fields.Item("PortName")) & """ />"
+				objDbrPrinters.MoveNext
+			Loop
+			objXMLFile = objXMLFile & " </printers>"
+		End If	
+	End If
+	
+	' regional settings
+	objXMLFile = objXMLFile & " <regional timezone=""" & Scrub4Web(strTimeZone) & """ />"
+
+	' Running Processes
+	If (bWMIRunningProcesses) Then
+		ReportProgress " Writing Processes information"
+		objXMLFile = objXMLFile & " <processes>"
+		If Not (objDbrProcess.Bof) Then
+			objDbrProcess.MoveFirst
+		End If
+		Do Until objDbrProcess.EOF
+			objXMLFile = objXMLFile & "  <process caption=""" & Scrub4Web(objDbrProcess.Fields.Item("Caption")) &_
+			""" executablepath=""" & Scrub4Web(objDbrProcess.Fields.Item("ExecutablePath")) & """ />"
+			objDbrProcess.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </processes>"
+	End If
+	
+	
+	' services
+	If (bWMIServices) Then
+		objXMLFile = objXMLFile & " <services>"
+		If Not (objDbrServices.Bof) Then
+			objDbrServices.MoveFirst
+		End If
+		Do Until objDbrServices.EOF
+			objXMLFile = objXMLFile & "  <service name=""" & Scrub4Web(objDbrServices.Fields.Item("Caption")) & _
+				""" startmode=""" & CStr(objDbrServices.Fields.Item("StartMode")) & _
+				""" started=""" & CStr(objDbrServices.Fields.Item("Started")) & _
+				""" startname=""" & Scrub4Web(objDbrServices.Fields.Item("StartName")) & """ />"
+				objDbrServices.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </services>"
+	End If
+	
+	' shares
+	If (bWMIFileShares) Then
+		objXMLFile = objXMLFile & " <shares>"
+		If Not (objDbrShares.Bof) Then
+			objDbrShares.MoveFirst
+		End If
+		Do Until objDbrShares.EOF
+			objXMLFile = objXMLFile & "  <share name=""" & Scrub4Web(objDbrShares.Fields.Item("Name")) & _
+				""" path=""" & Scrub4Web(objDbrShares.Fields.Item("Path")) & _
+				""" description=""" & Scrub4Web(objDbrShares.Fields.Item("Description")) & """ />"
+			objDbrShares.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </shares>"
+	End If
+	
+	' Startup Commands
+	If (bWMIStartupCommands) Then
+		objXMLFile = objXMLFile & " <win32_startupcommand>"
+		If Not (objDbrStartupCommand.Bof) Then
+			objDbrStartupCommand.MoveFirst
+		End If
+		Do Until objDbrStartupCommand.EOF
+			objXMLFile = objXMLFile & "  <command user=""" & Scrub4Web(objDbrStartupCommand.Fields.Item("User")) & _
+				""" name=""" & Scrub4Web(objDbrStartupCommand.Fields.Item("Name")) &_
+				""" command=""" & Scrub4Web(objDbrStartupCommand.Fields.Item("Command")) & """ />"
+			objDbrStartupCommand.MoveNext
+		Loop
+		objXMLFile = objXMLFile & " </win32_startupcommand>"
+	End If
+	
+	' virtual memory
+	objXMLFile = objXMLFile & " <pagefiles>"
+	If Not (objDbrPagefile.Bof) Then
+		objDbrPagefile.Movefirst
+	End If
+	Do Until objDbrPagefile.Eof
+		objXMLFile = objXMLFile & "  <pagefile drive=""" & objDbrPagefile.Fields.Item("Drive") & _
+			""" initialsize=""" & objDbrPagefile.Fields.Item("InitialSize") & _
+			""" maximumsize=""" & objDbrPagefile.Fields.Item("MaximumSize") & """ />"
+		objDbrPagefile.Movenext
+	Loop
+	objXMLFile = objXMLFile & " </pagefiles>"
+
+	' registry	
+	If (bWMIRegistry) Then
+		objXMLFile = objXMLFile & " <registry currentsize=""" & nCurrentSize & """ maximumsize=""" & nMaximumSize & """ />" 
+	End If
+	
+	objXMLFile = objXMLFile & "</computer>"
+
+	' Now we try to post the data
+	objWeb.open "POST", strWebUrl, False
+	objWeb.setRequestHeader "Content-Type", "application/x-www-form-urlencoded"
+	Dim mSendData 
+	mSendData = "source=1&key=" & strWebKey & "&account=" & strWebAccount & "&location=" & Escape(strAwditLocation) & "&contents=" & URLEncode(objXMLFile)
+	'ReportProgress "Request: " & "source=1&key=" & strWebKey & "&account=" & strWebAccount & "&contents="
+	'objWeb.setRequestHeader "Content-Length", len(mSendData)
+	objWeb.send mSendData
+	ReportProgress "Response: " & objWeb.responseText
+	ReportProgress "About to send to http: " & strWebUrl
+	
+	
+	Set objWeb = Nothing
+
+	ReportProgress "End subroutine: PopulateAwdit()"
+
+End Sub 'PopulateAwdit
+
+function URLEncode (sInput)
+  if IsNull(sInput) then
+    URLEncode = ""
+    exit function
+    end if
+  sInput = Replace(sInput, chr(0), "")
+  sInput = Replace(sInput, "%", "%25")
+  sInput = Replace(sInput, " ", "%20")
+  sInput = Replace(sInput, """", "%22")
+  sInput = Replace(sInput, "&", "%26")
+  sInput = Replace(sInput, "'", "%27")
+  sInput = Replace(sInput, "/", "%2F")
+  sInput = Replace(sInput, "?", "%3F")
+  sInput = Replace(sInput, "\", "%5C")
+  URLEncode = sInput
+end function
 
 Sub ReportProgress(strMessage)
 	WScript.Echo strMessage
@@ -4267,6 +5349,21 @@ Function Scrub4XML(strInput)
 	Scrub4XML = strInput
 End Function ' Scrub4XML
 
+Function Scrub4Web(sInput)
+	If (IsNull(sInput)) Then
+		sInput = ""
+	Else
+		sInput = Replace(sInput,"""","&quot;")
+		sInput = Replace(sInput,"<","&lt;")
+		sInput = Replace(sInput,">","&gt;")
+		sInput = Replace(sInput,"'","&apos;")
+  		sInput = Replace(sInput, "%", "%25")
+  		sInput = Replace(sInput, "&", "%26")
+		
+	End If
+	Scrub4Web = sInput
+End Function ' Scrub4Web
+
 Sub SetOptions(strOption)
 	Dim strFlag, strParameter
 	Dim nArguments
@@ -4386,11 +5483,40 @@ Sub SetOptions(strOption)
 								strExportFormat = "word"
 							Case "x"
 								strExportFormat = "xml"
+							Case "h"
+								strExportFormat = "http"
+							Case "a"
+								strExportFormat = "awdit"
 							Case Else
 								bInvalidArgument = True
 						End Select
 					
 					Next
+				End If
+				
+			Case "-A"
+				If (nArguments > 2) Then
+					strWebAccount = Right(strOption,(nArguments - 2))
+				Else
+					bInvalidArgument = True
+				End If
+			Case "-L"
+				If (nArguments > 2) Then
+					strWebUrl = Right(strOption,(nArguments - 2))
+				Else
+					bInvalidArgument = True
+				End If
+			Case "-O"
+				If (nArguments > 2) Then
+					strAwditLocation = Right(strOption,(nArguments - 2))
+				Else
+					bInvalidArgument = True
+				End If
+			Case "-K"
+				If (nArguments > 2) Then
+					strWebKey = Right(strOption,(nArguments - 2))
+				Else
+					bInvalidArgument = True
 				End If
 			Case "-s"
 				If (nArguments > 2) Then
@@ -4594,7 +5720,5 @@ Sub WriteHeader(nHeaderLevel,strHeaderText)
 	oWord.Selection.Range.ListFormat.ApplyListTemplate oListTemplate, True
 	oWord.Selection.TypeText strHeaderText & vbCrLf
 End Sub ' WriteHeader
-
-
 
 '==========================================================
