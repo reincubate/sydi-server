@@ -3543,8 +3543,9 @@ Sub PopulateHttp()
 	' Now we try to post the data
 	objWeb.open "POST", strWebUrl, False
 	objWeb.setRequestHeader "Content-Type", "application/x-www-form-urlencoded"
+	objWeb.setRequestHeader "User-Agent", "sydi-collector.vbs version " + strScriptVersion + " (awdit fork 05062011)"
 	Dim mSendData 
-	mSendData = "contents=" & objXMLFile
+	mSendData = objXMLFile
 	'objWeb.setRequestHeader "Content-Length", len(mSendData)
 	objWeb.send mSendData
 	ReportProgress "Response: " & objWeb.responseText
@@ -3559,7 +3560,7 @@ End Sub 'PopulateHttp
 
 Sub PopulateAwdit()
 	Dim objWeb, objXMLFile
-	strWebUrl = "https://www.awdit.com/feeds/submit/"
+	strWebUrl = "https://collector.awdit.com/feeds/submit/"
 	ReportProgress VbCrLf & "Start subroutine: PopulateAwdit()"
 
 	'Set objWeb = CreateObject("Microsoft.XMLHTTP")
@@ -4052,10 +4053,11 @@ Sub PopulateAwdit()
 	objXMLFile = objXMLFile & "</computer>"
 
 	' Now we try to post the data
-	objWeb.open "POST", strWebUrl, False
+	objWeb.open "POST", strWebUrl & "?source=1&key=" & strWebKey & "&account=" & strWebAccount & "&location=" & Escape(strAwditLocation), False
+	objWeb.setRequestHeader "User-Agent", "sydi-collector.vbs version " + strScriptVersion + " (awdit fork 05062011)"
 	objWeb.setRequestHeader "Content-Type", "application/x-www-form-urlencoded"
 	Dim mSendData 
-	mSendData = "source=1&key=" & strWebKey & "&account=" & strWebAccount & "&location=" & Escape(strAwditLocation) & "&contents=" & URLEncode(objXMLFile)
+	mSendData = objXMLFile
 	'ReportProgress "Request: " & "source=1&key=" & strWebKey & "&account=" & strWebAccount & "&contents="
 	'objWeb.setRequestHeader "Content-Length", len(mSendData)
 	objWeb.send mSendData
